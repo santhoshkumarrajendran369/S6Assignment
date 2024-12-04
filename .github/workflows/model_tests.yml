@@ -1,0 +1,64 @@
+name: Model Architecture Tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9]
+
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest
+        pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+        pip install -r requirements.txt
+    
+    - name: Run model architecture tests
+      run: |
+        python test_model.py
+      
+    - name: Run detailed pytest with coverage
+      run: |
+        pip install pytest-cov
+        pytest test_model.py -v --cov=model --cov-report=term-missing
+    
+    - name: Generate test summary
+      if: always()
+      run: |
+        echo "## Model Architecture Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "### Test Requirements:" >> $GITHUB_STEP_SUMMARY
+        echo "✓ Total Parameter Count < 20k" >> $GITHUB_STEP_SUMMARY
+        echo "✓ Use of Batch Normalization" >> $GITHUB_STEP_SUMMARY
+        echo "✓ Use of Dropout" >> $GITHUB_STEP_SUMMARY
+        echo "✓ Use of Global Average Pooling (No FC layers)" >> $GITHUB_STEP_SUMMARY
+        
+        if [ ${{ job.status }} == 'success' ]; then
+          echo "### Status: ✅ All Tests Passed" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "### Status: ❌ Tests Failed" >> $GITHUB_STEP_SUMMARY
+        fi
+    
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v2
+      with:
+        name: test-results
+        path: |
+          .coverage
+          test-results/
+        if-no-files-found: ignore

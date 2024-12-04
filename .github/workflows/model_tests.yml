@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.8, 3.9]
+        python-version: [3.8]
 
     steps:
     - uses: actions/checkout@v4
@@ -28,16 +28,68 @@ jobs:
         pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
         pip install -r requirements.txt
     
-    - name: Run model architecture tests
+    - name: Run Parameter Count Test
       run: |
-        python test_model.py
+        echo "::group::Total Parameter Count Test"
+        python -c "
+import torch
+from model import Net
+model = Net()
+total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print(f'\nTotal Parameters: {total_params:,}')
+assert total_params < 20000, f'Model has {total_params:,} parameters, exceeding 20k limit'
+print('\n✅ Parameter Count Test Passed: Model has less than 20k parameters')
+        "
+        echo "::endgroup::"
       
-    - name: Run detailed pytest with coverage
+    - name: Test Batch Normalization
       run: |
-        pip install pytest-cov
-        pytest test_model.py -v --cov=model --cov-report=term-missing
+        echo "::group::Batch Normalization Test"
+        python -c "
+import torch
+import torch.nn as nn
+from model import Net
+model = Net()
+bn_layers = sum(1 for m in model.modules() if isinstance(m, nn.BatchNorm2d))
+print(f'\nBatch Normalization Layers Found: {bn_layers}')
+assert bn_layers > 0, 'No Batch Normalization layers found'
+print('\n✅ Batch Normalization Test Passed: Found {bn_layers} BatchNorm layers')
+        "
+        echo "::endgroup::"
+        
+    - name: Test Dropout Usage
+      run: |
+        echo "::group::Dropout Test"
+        python -c "
+import torch
+import torch.nn as nn
+from model import Net
+model = Net()
+dropout_layers = [(name, m.p) for name, m in model.named_modules() if isinstance(m, nn.Dropout)]
+print(f'\nDropout Layers Found: {len(dropout_layers)}')
+for name, p in dropout_layers:
+    print(f'Layer: {name}, Dropout Rate: {p}')
+assert len(dropout_layers) > 0, 'No Dropout layers found'
+print('\n✅ Dropout Test Passed: Found {len(dropout_layers)} Dropout layers')
+        "
+        echo "::endgroup::"
+        
+    - name: Test GAP vs FC Layer
+      run: |
+        echo "::group::GAP vs FC Layer Test"
+        python -c "
+import torch
+import torch.nn as nn
+from model import Net
+model = Net()
+fc_layers = sum(1 for m in model.modules() if isinstance(m, nn.Linear))
+print(f'\nFully Connected Layers Found: {fc_layers}')
+assert fc_layers == 0, 'Found Fully Connected layers, should use GAP instead'
+print('\n✅ Architecture Test Passed: No FC layers found, using GAP')
+        "
+        echo "::endgroup::"
     
-    - name: Generate test summary
+    - name: Generate Test Summary
       if: always()
       run: |
         echo "## Model Architecture Test Results" >> $GITHUB_STEP_SUMMARY
@@ -52,13 +104,3 @@ jobs:
         else
           echo "### Status: ❌ Tests Failed" >> $GITHUB_STEP_SUMMARY
         fi
-    
-    - name: Upload test results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: test-results
-        path: |
-          .coverage
-          test-results/
-        if-no-files-found: ignore

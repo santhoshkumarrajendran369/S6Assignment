@@ -87,9 +87,23 @@ jobs:
         import torch
         import torch.nn as nn
         import torch.nn.functional as F
+        import torch.optim as optim
         from torchvision import datasets, transforms
         from model import Net
         
+        def train(model, device, train_loader, optimizer, epoch):
+            model.train()
+            for batch_idx, (data, target) in enumerate(train_loader):
+                data, target = data.to(device), target.to(device)
+                optimizer.zero_grad()
+                output = model(data)
+                loss = F.nll_loss(output, target)
+                loss.backward()
+                optimizer.step()
+                if batch_idx % 100 == 0:
+                    print(f'Train Epoch: {epoch} [{batch_idx * len(data)}/{len(train_loader.dataset)} '
+                          f'({100. * batch_idx / len(train_loader):.0f}%)]\tLoss: {loss.item():.6f}')
+
         def test(model, device, test_loader):
             model.eval()
             test_loss = 0
@@ -104,6 +118,7 @@ jobs:
 
             test_loss /= len(test_loader.dataset)
             accuracy = 100. * correct / len(test_loader.dataset)
+            print(f'\nTest set: Average loss: {test_loss:.4f}, Accuracy: {accuracy:.2f}%')
             return test_loss, accuracy
 
         # Setup device
@@ -114,7 +129,14 @@ jobs:
         import os
         os.makedirs('../data', exist_ok=True)
 
-        # Load test data with download=True
+        # Load train and test data
+        train_loader = torch.utils.data.DataLoader(
+            datasets.MNIST('../data', train=True, download=True, transform=transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.1307,), (0.3081,))
+            ])),
+            batch_size=128, shuffle=True)
+
         test_loader = torch.utils.data.DataLoader(
             datasets.MNIST('../data', train=False, download=True, transform=transforms.Compose([
                 transforms.ToTensor(),
@@ -122,16 +144,21 @@ jobs:
             ])),
             batch_size=1000, shuffle=True)
 
-        # Initialize and test model
+        # Initialize model, optimizer, and scheduler
         model = Net().to(device)
-        test_loss, accuracy = test(model, device, test_loader)
-        
-        print(f'\nTest set: Average loss: {test_loss:.4f}')
-        print(f'Test set: Accuracy: {accuracy:.2f}%')
-        
-        # Assert minimum accuracy threshold (can adjust as needed)
-        assert accuracy > 90.0, f'Model accuracy {accuracy:.2f}% is below 90% threshold'
-        print('\n✅ Accuracy Test Passed: Model achieves above 90% accuracy')
+        optimizer = optim.SGD(model.parameters(), lr=0.05, momentum=0.9)
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=15)
+
+        # Train the model
+        print("\nStarting training...")
+        for epoch in range(1, 16):
+            train(model, device, train_loader, optimizer, epoch)
+            test_loss, accuracy = test(model, device, test_loader)
+            scheduler.step()
+
+        print(f'\nFinal Test set: Average loss: {test_loss:.4f}, Accuracy: {accuracy:.2f}%')
+        assert accuracy > 99.0, f'Model accuracy {accuracy:.2f}% is below 99% threshold'
+        print('\n✅ Accuracy Test Passed: Model achieves above 99% accuracy')
         EOF
     
     - name: Generate Test Summary
@@ -143,7 +170,7 @@ jobs:
         echo "✓ Use of Batch Normalization" >> $GITHUB_STEP_SUMMARY
         echo "✓ Use of Dropout" >> $GITHUB_STEP_SUMMARY
         echo "✓ Use of Global Average Pooling (No FC layers)" >> $GITHUB_STEP_SUMMARY
-        echo "✓ Model Accuracy > 90%" >> $GITHUB_STEP_SUMMARY
+        echo "✓ Model Accuracy > 99%" >> $GITHUB_STEP_SUMMARY
         
         if [ ${{ job.status }} == 'success' ]; then
           echo "### Status: ✅ All Tests Passed" >> $GITHUB_STEP_SUMMARY

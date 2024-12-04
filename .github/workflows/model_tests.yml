@@ -110,9 +110,13 @@ jobs:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"\nUsing device: {device}")
 
-        # Load test data
+        # Create data directory if it doesn't exist
+        import os
+        os.makedirs('../data', exist_ok=True)
+
+        # Load test data with download=True
         test_loader = torch.utils.data.DataLoader(
-            datasets.MNIST('../data', train=False, transform=transforms.Compose([
+            datasets.MNIST('../data', train=False, download=True, transform=transforms.Compose([
                 transforms.ToTensor(),
                 transforms.Normalize((0.1307,), (0.3081,))
             ])),
